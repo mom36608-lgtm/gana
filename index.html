@@ -642,12 +642,27 @@ html[dir="rtl"] .quiz-result{ font-family:var(--sans-ar); font-weight:600; font-
 .gb-list{ max-width:660px; margin:0 auto; display:flex; flex-direction:column; gap:14px; }
 .gb-item{
   border:1px solid var(--line); border-radius:16px; padding:18px 22px; background: rgba(16,12,42,.45);
-  backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px); position:relative;
 }
 .gb-item .name{ font-family:var(--serif); font-style:italic; color:var(--gold-soft); font-size:1.05rem; margin-bottom:4px; }
 html[dir="rtl"] .gb-item .name{ font-family:var(--sans-ar); font-style:normal; font-weight:700; }
 .gb-item .msg{ font-size:.96rem; color:var(--lilac-soft); }
 .gb-empty{ text-align:center; color:var(--lilac); font-size:.95rem; }
+.gb-item .gb-del{
+  position:absolute; top:12px; inset-inline-end:14px; font-size:.78rem; color:#ff8a8a;
+  border:1px solid rgba(255,138,138,.4); border-radius:999px; padding:4px 12px;
+  transition: all .2s ease;
+}
+.gb-item .gb-del:hover{ background:rgba(255,138,138,.15); }
+.gb-admin-bar{
+  max-width:580px; margin:0 auto 18px; display:flex; justify-content:center;
+}
+.gb-admin-btn{
+  font-size:.82rem; color:var(--lilac); border:1px dashed var(--line); border-radius:999px;
+  padding:8px 18px; transition: all .2s ease;
+}
+.gb-admin-btn:hover{ border-color:var(--gold); color:var(--gold-soft); }
+.gb-admin-btn.is-admin{ color:var(--gold-soft); border-color:var(--gold); border-style:solid; }
 
 /* ============ FOOTER & SOCIAL SHARE ============ */
 footer{ position:relative; z-index:1; padding:70px 24px 150px; text-align:center; }
@@ -866,6 +881,9 @@ html[dir="rtl"] footer .note{ font-family:'Amiri',serif; font-style:italic; font
 <section id="guestbook">
   <div class="wrap">
     <div class="head reveal"><h2 data-i="gb.title">تهنئة ليها</h2><p data-i="gb.sub">اكتبولها كلمة حلوة.</p></div>
+    <div class="gb-admin-bar reveal">
+      <button class="gb-admin-btn" id="adminBtn" data-i="gb.adminLogin">تسجيل دخول الأدمن</button>
+    </div>
     <form class="gb-form reveal" id="gbForm">
       <input type="text" id="gbName" data-i-ph="gb.namePh" placeholder="اسمك" required>
       <textarea id="gbMsg" data-i-ph="gb.msgPh" placeholder="اكتب تهنئتك هنا" required></textarea>
@@ -888,6 +906,37 @@ html[dir="rtl"] footer .note{ font-family:'Amiri',serif; font-style:italic; font
 </footer>
 
 <div id="toast">تم النسخ بنجاح! ✨</div>
+
+<!-- ============ FIREBASE (shared guestbook + admin) ============ -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
+  import {
+    getFirestore, collection, addDoc, deleteDoc, doc,
+    onSnapshot, orderBy, query, serverTimestamp
+  } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+  import {
+    getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged
+  } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
+
+  // ⚠️ استبدل القيم دي بالقيم اللي هتاخدها من Firebase Console (الخطوة 1)
+  const firebaseConfig = {
+    apiKey: "YOUR_API_KEY",
+    authDomain: "YOUR_PROJECT.firebaseapp.com",
+    projectId: "YOUR_PROJECT",
+    storageBucket: "YOUR_PROJECT.appspot.com",
+    messagingSenderId: "YOUR_SENDER_ID",
+    appId: "YOUR_APP_ID"
+  };
+
+  const ADMIN_EMAIL = "hassuinahmed0@gmail.com";
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+  const auth = getAuth(app);
+  const provider = new GoogleAuthProvider();
+
+  window.__gb = { db, auth, provider, addDoc, collection, deleteDoc, doc, onSnapshot, orderBy, query, serverTimestamp, signInWithPopup, signOut, onAuthStateChanged, ADMIN_EMAIL };
+</script>
 
 <script>
 /* ============ SAFE INTRO DISMISS ============ */
@@ -918,6 +967,7 @@ const T = {
     "quiz.title":"إحنا الاتنين","quiz.sub":"اختاري وشوفي.",
     "gb.title":"تهنئة ليها","gb.sub":"اكتبولها كلمة حلوة.",
     "gb.namePh":"اسمك","gb.msgPh":"اكتب تهنئتك هنا","gb.send":"ابعت 💌","gb.empty":"لسه محدش كتب حاجة.. يلا ابدأ إنت",
+    "gb.adminLogin":"تسجيل دخول الأدمن","gb.adminOut":"خروج الأدمن (مسجل)","gb.delConfirm":"تمسح التعليقة دي؟","gb.delBtn":"مسح",
     "footer.shareHead":"شاركي اللحظة الحلوة",
     "footer.wa":"واتساب","footer.fb":"فيسبوك","footer.ig":"انستجرام","footer.snap":"سناب شات","footer.copy":"نسخ الرابط",
     "footer.note":"صنع بحب، لأجلك إنتِ يا جنة 🤍",
@@ -947,6 +997,7 @@ const T = {
     "quiz.title":"Just Us Two","quiz.sub":"Pick, and see.",
     "gb.title":"Leave Her a Wish","gb.sub":"Write her something kind.",
     "gb.namePh":"Your name","gb.msgPh":"Write your wish here","gb.send":"Send 💌","gb.empty":"No wishes yet — be the first",
+    "gb.adminLogin":"Admin sign in","gb.adminOut":"Sign out (admin)","gb.delConfirm":"Delete this wish?","gb.delBtn":"Delete",
     "footer.shareHead":"Share the love",
     "footer.wa":"WhatsApp","footer.fb":"Facebook","footer.ig":"Instagram","footer.snap":"Snapchat","footer.copy":"Copy Link",
     "footer.note":"Made with love, for you, Jana 🤍",
@@ -968,7 +1019,10 @@ function applyLang(){
   document.querySelectorAll('[data-i]').forEach(el=>{ const k=el.getAttribute('data-i'); if(T[LANG][k]) el.textContent=T[LANG][k]; });
   document.querySelectorAll('[data-i-ph]').forEach(el=>{ const k=el.getAttribute('data-i-ph'); if(T[LANG][k]) el.setAttribute('placeholder', T[LANG][k]); });
   document.querySelectorAll('.cf-slide .veil span').forEach(el=> el.textContent = T[LANG]['veil.label']);
-  renderQuiz(); renderGuestbook(); renderTrackInfo();
+  renderQuiz();
+  renderGuestbook();
+  renderAdminBtn();
+  renderTrackInfo();
 }
 document.getElementById('langBtn').addEventListener('click', ()=>{ LANG = LANG==='ar'?'en':'ar'; applyLang(); });
 
@@ -1628,35 +1682,98 @@ function paintQuiz(){
   });
 }
 
-/* ============ GUESTBOOK ============ */
-const GB_KEY = 'jana_guestbook_msgs_v2';
-function getGB(){ try{ return JSON.parse(localStorage.getItem(GB_KEY))||[]; }catch(e){ return []; } }
+/* ============ GUESTBOOK (shared via Firestore + admin delete) ============ */
+let gbCache = [];      // last snapshot from Firestore
+let currentUser = null; // firebase auth user (or null)
+
+function isAdmin(){
+  return !!(currentUser && currentUser.email === window.__gb.ADMIN_EMAIL);
+}
+
+function renderAdminBtn(){
+  const btn = document.getElementById('adminBtn');
+  if(!btn) return;
+  if(isAdmin()){
+    btn.textContent = T[LANG]['gb.adminOut'];
+    btn.classList.add('is-admin');
+  } else {
+    btn.textContent = T[LANG]['gb.adminLogin'];
+    btn.classList.remove('is-admin');
+  }
+}
+
+document.getElementById('adminBtn').addEventListener('click', async ()=>{
+  const { auth, provider, signInWithPopup, signOut } = window.__gb;
+  try{
+    if(isAdmin()){
+      await signOut(auth);
+    } else {
+      await signInWithPopup(auth, provider);
+    }
+  }catch(err){
+    console.log('Admin auth error:', err);
+  }
+});
+
+window.__gb.onAuthStateChanged(window.__gb.auth, (user)=>{
+  currentUser = user;
+  renderAdminBtn();
+  renderGuestbook();
+});
+
 function renderGuestbook(){
   const list = document.getElementById('gbList');
-  const items = getGB();
-  if(items.length === 0){
+  if(gbCache.length === 0){
     list.innerHTML = `<p class="gb-empty">${T[LANG]['gb.empty']}</p>`;
     return;
   }
-  list.innerHTML = items.slice().reverse().map(it => `
+  list.innerHTML = gbCache.map(it => `
     <div class="gb-item">
+      ${isAdmin() ? `<button class="gb-del" data-id="${it.id}">${T[LANG]['gb.delBtn']}</button>` : ''}
       <div class="name">${escapeHTML(it.name)}</div>
       <div class="msg">${escapeHTML(it.msg)}</div>
     </div>
   `).join('');
+
+  list.querySelectorAll('.gb-del').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      if(!confirm(T[LANG]['gb.delConfirm'])) return;
+      const { db, doc, deleteDoc } = window.__gb;
+      try{
+        await deleteDoc(doc(db, 'guestbook', btn.dataset.id));
+      }catch(err){
+        console.log('Delete error:', err);
+      }
+    });
+  });
 }
+
 function escapeHTML(s){ return s.replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-document.getElementById('gbForm').addEventListener('submit', function(e){
+
+// Live sync: any device writing to Firestore updates everyone instantly
+(function initGuestbookSync(){
+  const { db, collection, query, orderBy, onSnapshot } = window.__gb;
+  const q = query(collection(db, 'guestbook'), orderBy('t', 'desc'));
+  onSnapshot(q, (snap)=>{
+    gbCache = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    renderGuestbook();
+  }, (err)=> console.log('Guestbook sync error:', err));
+})();
+
+document.getElementById('gbForm').addEventListener('submit', async function(e){
   e.preventDefault();
   const name = document.getElementById('gbName').value.trim();
   const msg = document.getElementById('gbMsg').value.trim();
   if(!name || !msg) return;
-  const items = getGB();
-  items.push({ name, msg, t:Date.now() });
-  localStorage.setItem(GB_KEY, JSON.stringify(items));
-  this.reset();
-  renderGuestbook();
-  showToast(LANG==='ar'?'تم إرسال تهنئتك بنجاح! 💌':'Wish sent with love! 💌');
+  const { db, collection, addDoc, serverTimestamp } = window.__gb;
+  try{
+    await addDoc(collection(db, 'guestbook'), { name, msg, t: Date.now() });
+    this.reset();
+    showToast(LANG==='ar'?'تم إرسال تهنئتك بنجاح! 💌':'Wish sent with love! 💌');
+  }catch(err){
+    console.log('Guestbook submit error:', err);
+    showToast(LANG==='ar'?'حصل خطأ، حاولي تاني 🙈':'Something went wrong, try again 🙈');
+  }
 });
 
 /* ============ DUAL PLAYLIST MUSIC ENGINE (AR & EN) ============ */

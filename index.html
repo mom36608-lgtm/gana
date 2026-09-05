@@ -648,12 +648,17 @@ html[dir="rtl"] .quiz-result{ font-family:var(--sans-ar); font-weight:600; font-
 html[dir="rtl"] .gb-item .name{ font-family:var(--sans-ar); font-style:normal; font-weight:700; }
 .gb-item .msg{ font-size:.96rem; color:var(--lilac-soft); }
 .gb-empty{ text-align:center; color:var(--lilac); font-size:.95rem; }
-.gb-item .gb-del{
-  position:absolute; top:12px; inset-inline-end:14px; font-size:.78rem; color:#ff8a8a;
-  border:1px solid rgba(255,138,138,.4); border-radius:999px; padding:4px 12px;
-  transition: all .2s ease;
+.gb-admin-actions{
+  position:absolute; top:12px; inset-inline-end:14px; display:flex; gap:6px;
 }
-.gb-item .gb-del:hover{ background:rgba(255,138,138,.15); }
+.gb-act{
+  font-size:.72rem; border-radius:999px; padding:4px 11px; transition: all .2s ease;
+  border:1px solid var(--line); color:var(--lilac-soft);
+}
+.gb-act:hover{ border-color:var(--gold); color:var(--gold-soft); }
+.gb-act.gb-del{ color:#ff8a8a; border-color:rgba(255,138,138,.4); }
+.gb-act.gb-del:hover{ background:rgba(255,138,138,.15); }
+.gb-pinned-tag{ font-size:.72rem; color:var(--gold-soft); margin-bottom:6px; font-weight:700; }
 .gb-admin-bar{
   max-width:580px; margin:0 auto 18px; display:flex; justify-content:center;
 }
@@ -911,7 +916,7 @@ html[dir="rtl"] footer .note{ font-family:'Amiri',serif; font-style:italic; font
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
   import {
-    getFirestore, collection, addDoc, deleteDoc, doc,
+    getFirestore, collection, addDoc, deleteDoc, doc, updateDoc,
     onSnapshot, orderBy, query, serverTimestamp
   } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
   import {
@@ -935,7 +940,11 @@ html[dir="rtl"] footer .note{ font-family:'Amiri',serif; font-style:italic; font
   const auth = getAuth(app);
   const provider = new GoogleAuthProvider();
 
-  window.__gb = { db, auth, provider, addDoc, collection, deleteDoc, doc, onSnapshot, orderBy, query, serverTimestamp, signInWithPopup, signOut, onAuthStateChanged, ADMIN_EMAIL };
+  window.__gb = { db, auth, provider, addDoc, collection, deleteDoc, doc, updateDoc, onSnapshot, orderBy, query, serverTimestamp, signInWithPopup, signOut, onAuthStateChanged, ADMIN_EMAIL };
+  // Module scripts load AFTER classic scripts, so we tell the rest of the page
+  // exactly when Firebase is ready instead of racing it (this was the bug
+  // that made the quiz/admin/guestbook code silently stop running).
+  window.dispatchEvent(new CustomEvent('firebaseReady'));
 </script>
 
 <script>
@@ -1682,9 +1691,10 @@ function paintQuiz(){
   });
 }
 
-/* ============ GUESTBOOK (shared via Firestore + admin delete) ============ */
-let gbCache = [];      // last snapshot from Firestore
+/* ============ GUESTBOOK (shared via Firestore + admin pin/edit/delete) ============ */
+let gbCache = [];       // last snapshot from Firestore
 let currentUser = null; // firebase auth user (or null)
+let gbReady = false;    // becomes true once Firebase has finished loading
 
 function isAdmin(){
   return !!(currentUser && currentUser.email === window.__gb.ADMIN_EMAIL);
@@ -1702,79 +1712,115 @@ function renderAdminBtn(){
   }
 }
 
-document.getElementById('adminBtn').addEventListener('click', async ()=>{
-  const { auth, provider, signInWithPopup, signOut } = window.__gb;
-  try{
-    if(isAdmin()){
-      await signOut(auth);
-    } else {
-      await signInWithPopup(auth, provider);
-    }
-  }catch(err){
-    console.log('Admin auth error:', err);
-  }
-});
-
-window.__gb.onAuthStateChanged(window.__gb.auth, (user)=>{
-  currentUser = user;
-  renderAdminBtn();
-  renderGuestbook();
-});
-
 function renderGuestbook(){
   const list = document.getElementById('gbList');
+  if(!gbReady){
+    list.innerHTML = `<p class="gb-empty">${LANG==='ar'?'بيتحمّل...':'Loading...'}</p>`;
+    return;
+  }
   if(gbCache.length === 0){
     list.innerHTML = `<p class="gb-empty">${T[LANG]['gb.empty']}</p>`;
     return;
   }
-  list.innerHTML = gbCache.map(it => `
+  // Pinned wishes float to the top, everything else stays newest-first
+  const sorted = [...gbCache].sort((a,b)=>{
+    if(!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1;
+    return (b.t||0) - (a.t||0);
+  });
+
+  list.innerHTML = sorted.map(it => `
     <div class="gb-item">
-      ${isAdmin() ? `<button class="gb-del" data-id="${it.id}">${T[LANG]['gb.delBtn']}</button>` : ''}
+      ${isAdmin() ? `
+        <div class="gb-admin-actions">
+          <button class="gb-act gb-pin" data-id="${it.id}" data-pinned="${it.pinned?1:0}">${it.pinned ? (LANG==='ar'?'إلغاء التثبيت':'Unpin') : (LANG==='ar'?'تثبيت':'Pin')}</button>
+          <button class="gb-act gb-edit" data-id="${it.id}">${LANG==='ar'?'تعديل':'Edit'}</button>
+          <button class="gb-act gb-del" data-id="${it.id}">${T[LANG]['gb.delBtn']}</button>
+        </div>
+      ` : ''}
+      ${it.pinned ? `<div class="gb-pinned-tag">📌 ${LANG==='ar'?'مثبت':'Pinned'}</div>` : ''}
       <div class="name">${escapeHTML(it.name)}</div>
       <div class="msg">${escapeHTML(it.msg)}</div>
     </div>
   `).join('');
 
+  const { db, doc, deleteDoc, updateDoc } = window.__gb;
+
   list.querySelectorAll('.gb-del').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
       if(!confirm(T[LANG]['gb.delConfirm'])) return;
-      const { db, doc, deleteDoc } = window.__gb;
-      try{
-        await deleteDoc(doc(db, 'guestbook', btn.dataset.id));
-      }catch(err){
-        console.log('Delete error:', err);
-      }
+      try{ await deleteDoc(doc(db, 'guestbook', btn.dataset.id)); }
+      catch(err){ console.log('Delete error:', err); }
+    });
+  });
+
+  list.querySelectorAll('.gb-pin').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const nowPinned = btn.dataset.pinned === '1';
+      try{ await updateDoc(doc(db, 'guestbook', btn.dataset.id), { pinned: !nowPinned }); }
+      catch(err){ console.log('Pin error:', err); }
+    });
+  });
+
+  list.querySelectorAll('.gb-edit').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const item = gbCache.find(x => x.id === btn.dataset.id);
+      const newMsg = prompt(LANG==='ar'?'عدّلي التهنئة:':'Edit the wish:', item ? item.msg : '');
+      if(newMsg === null) return;
+      try{ await updateDoc(doc(db, 'guestbook', btn.dataset.id), { msg: newMsg.trim() }); }
+      catch(err){ console.log('Edit error:', err); }
     });
   });
 }
 
 function escapeHTML(s){ return s.replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
-// Live sync: any device writing to Firestore updates everyone instantly
-(function initGuestbookSync(){
-  const { db, collection, query, orderBy, onSnapshot } = window.__gb;
+// Everything below needs Firebase to be fully loaded first — the module
+// script dispatches 'firebaseReady' once window.__gb is set.
+function initGuestbookAll(){
+  gbReady = true;
+
+  document.getElementById('adminBtn').addEventListener('click', async ()=>{
+    const { auth, provider, signInWithPopup, signOut } = window.__gb;
+    try{
+      if(isAdmin()) await signOut(auth);
+      else await signInWithPopup(auth, provider);
+    }catch(err){
+      console.log('Admin auth error:', err);
+      showToast(LANG==='ar' ? 'فشل تسجيل الدخول — الدومين محتاج تضيفه في Firebase' : 'Sign-in failed — add this domain in Firebase');
+    }
+  });
+
+  window.__gb.onAuthStateChanged(window.__gb.auth, (user)=>{
+    currentUser = user;
+    renderAdminBtn();
+    renderGuestbook();
+  });
+
+  const { db, collection, query, orderBy, onSnapshot, addDoc } = window.__gb;
   const q = query(collection(db, 'guestbook'), orderBy('t', 'desc'));
   onSnapshot(q, (snap)=>{
     gbCache = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     renderGuestbook();
   }, (err)=> console.log('Guestbook sync error:', err));
-})();
 
-document.getElementById('gbForm').addEventListener('submit', async function(e){
-  e.preventDefault();
-  const name = document.getElementById('gbName').value.trim();
-  const msg = document.getElementById('gbMsg').value.trim();
-  if(!name || !msg) return;
-  const { db, collection, addDoc, serverTimestamp } = window.__gb;
-  try{
-    await addDoc(collection(db, 'guestbook'), { name, msg, t: Date.now() });
-    this.reset();
-    showToast(LANG==='ar'?'تم إرسال تهنئتك بنجاح! 💌':'Wish sent with love! 💌');
-  }catch(err){
-    console.log('Guestbook submit error:', err);
-    showToast(LANG==='ar'?'حصل خطأ، حاولي تاني 🙈':'Something went wrong, try again 🙈');
-  }
-});
+  document.getElementById('gbForm').addEventListener('submit', async function(e){
+    e.preventDefault();
+    const name = document.getElementById('gbName').value.trim();
+    const msg = document.getElementById('gbMsg').value.trim();
+    if(!name || !msg) return;
+    try{
+      await addDoc(collection(db, 'guestbook'), { name, msg, t: Date.now(), pinned: false });
+      this.reset();
+      showToast(LANG==='ar'?'تم إرسال تهنئتك بنجاح! 💌':'Wish sent with love! 💌');
+    }catch(err){
+      console.log('Guestbook submit error:', err);
+      showToast(LANG==='ar'?'حصل خطأ، حاولي تاني 🙈':'Something went wrong, try again 🙈');
+    }
+  });
+}
+
+if(window.__gb){ initGuestbookAll(); }
+else { window.addEventListener('firebaseReady', initGuestbookAll); }
 
 /* ============ DUAL PLAYLIST MUSIC ENGINE (AR & EN) ============ */
 const PLAYLISTS = {
